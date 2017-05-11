@@ -229,7 +229,7 @@
             }
         }
 
-        private MemoryStream getSkeletonAsByteArray(Skeleton skel)
+        private void addSkeletonToMemoryStream(Skeleton skel, MemoryStream ms)
         {
             // The format of each skeleton:
             // <kineck id>
@@ -241,9 +241,7 @@
             // The process is expected to be executed in real time, so we try to make this function call
             // as efficient as possible
             // (a low level optimization: avoid redundant if mostly not taken in each frame).
-
-            MemoryStream ms = new MemoryStream();
-
+            
             // Write skel id
             byte[] skelId = BitConverter.GetBytes(skel.TrackingId);
             ms.Write(skelId, 0, skelId.Length);
@@ -274,9 +272,8 @@
                 ms.Write(jointZbyte, 0, jointZbyte.Length);
             }
 
-
-            ms.Position = 0;
-            return ms;
+            byte[] endOfSkel = new byte[2] { 0xFF, 0xFF };
+            ms.Write(endOfSkel, 0, endOfSkel.Length);
         }
 
 
@@ -305,6 +302,8 @@
 
                 if (skeletons.Length != 0)
                 {
+                    MemoryStream ms = new MemoryStream();
+
                     foreach (Skeleton skel in skeletons)
                     {
                         RenderClippedEdges(skel, dc);
@@ -314,12 +313,7 @@
                             // Draws the skeleton
                             this.DrawBonesAndJoints(skel, dc);
 
-                            if (serverAddr != null)
-                            {
-                                MemoryStream ms = getSkeletonAsByteArray(skel);
-                                IPEndPoint endPoint = new IPEndPoint(serverAddr, 11000);
-                              int ret = sock.SendTo(ms.ToArray(), endPoint);
-                            }
+                            addSkeletonToMemoryStream(skel, ms);
 
                         }
                         else if (skel.TrackingState == SkeletonTrackingState.PositionOnly)
@@ -331,6 +325,14 @@
                             BodyCenterThickness,
                             BodyCenterThickness);
                         }
+                    }
+
+
+                    if (serverAddr != null)
+                    {
+                        ms.Position = 0;
+                        IPEndPoint endPoint = new IPEndPoint(serverAddr, 11000);
+                        int ret = sock.SendTo(ms.ToArray(), endPoint);
                     }
                 }
 
