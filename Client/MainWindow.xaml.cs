@@ -304,6 +304,19 @@
                 {
                     MemoryStream ms = new MemoryStream();
 
+                    string hostname = System.Environment.MachineName;
+                    byte[] hostnameBytes = System.Text.Encoding.ASCII.GetBytes(hostname);
+                    ms.Write(hostnameBytes, 0, hostnameBytes.Length);
+
+                    byte[] nullByte = new byte[1];
+                    nullByte[0] = 0;
+                    ms.Write(nullByte, 0, nullByte.Length);
+
+                    double timestamp = DateTime.Now.ToUniversalTime().Subtract(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+                    byte[] timestampBytes = BitConverter.GetBytes(timestamp);
+                    ms.Write(timestampBytes, 0, timestampBytes.Length);
+
+
                     foreach (Skeleton skel in skeletons)
                     {
                         RenderClippedEdges(skel, dc);
@@ -328,7 +341,7 @@
                     }
 
 
-                    if (serverAddr != null)
+                    if (serverAddr != null && ms.Length > timestampBytes.Length + hostnameBytes.Length + hostnameBytes.Length + nullByte.Length)
                     {
                         ms.Position = 0;
                         IPEndPoint endPoint = new IPEndPoint(serverAddr, 11000);
