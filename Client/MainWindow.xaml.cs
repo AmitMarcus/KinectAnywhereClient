@@ -13,6 +13,7 @@
     using System;
     using System.Runtime.Serialization.Formatters.Binary;
     using System.Diagnostics;
+    using System.Threading;
 
     /// <summary>
     /// Interaction logic for MainWindow.xaml
@@ -87,8 +88,10 @@
         // TODO: comments
         static Socket sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         static IPAddress serverAddr = null;
-        static bool shouldKinectWork = true;
+        static bool isKinectON = false;
+        static bool shouldExit = false;
 
+        // TODO: sometimes crashing because 5000 is still in use
         UdpClient Client = new UdpClient(5000);
 
         //CallBack
@@ -96,11 +99,49 @@
         {
             // TODO: check port of RemoteIpEndPoint
             IPEndPoint RemoteIpEndPoint = new IPEndPoint(IPAddress.Any, 8000);
-            byte[] received = Client.EndReceive(res, ref RemoteIpEndPoint);
+            byte[] receivedBytes = Client.EndReceive(res, ref RemoteIpEndPoint);
+            string received = System.Text.Encoding.ASCII.GetString(receivedBytes);
+            if (received.Contains(System.Environment.MachineName + "=OFF") && isKinectON) {
+                this.sensor.Stop();
+                isKinectON = false;
+            }
+            if (received.Contains(System.Environment.MachineName + "=ON") && !isKinectON)
+            {
+                this.sensor.Start();
+                isKinectON = true;
+            }
+            if (received.Contains(System.Environment.MachineName + "=SHUTDOWN"))
+            {
+                var psi = new ProcessStartInfo("shutdown", "/s /t 0");
+                psi.CreateNoWindow = true;
+                psi.UseShellExecute = false;
+                Process.Start(psi);
+            }
 
             serverAddr = RemoteIpEndPoint.Address;
 
             Client.BeginReceive(new AsyncCallback(recv), null);
+        }
+
+        private void sendBeacon()
+        {
+            while (!shouldExit)
+            {
+                MemoryStream ms = new MemoryStream();
+
+                string hostname = System.Environment.MachineName;
+                byte[] hostnameBytes = System.Text.Encoding.ASCII.GetBytes(hostname);
+                ms.Write(hostnameBytes, 0, hostnameBytes.Length);
+
+                if (serverAddr != null)
+                {
+                    ms.Position = 0;
+                    IPEndPoint endPoint = new IPEndPoint(serverAddr, 11000);
+                    int ret = sock.SendTo(ms.ToArray(), endPoint);
+                }
+
+                Thread.Sleep(2000);
+            }
         }
 
         /// <summary>
@@ -109,15 +150,6 @@
         public MainWindow()
         {
             InitializeComponent();
-
-            try
-            {
-                Client.BeginReceive(new AsyncCallback(recv), null);
-            }
-            catch (Exception e)
-            {
-                Debug.WriteLine(e.ToString());
-            }
         }
 
         /// <summary>
@@ -201,6 +233,7 @@
                 try
                 {
                     this.sensor.Start();
+                    isKinectON = true;
                 }
                 catch (IOException)
                 {
@@ -213,6 +246,18 @@
             if (null == this.sensor)
             {
                 this.statusBarText.Text = Properties.Resources.NoKinectReady;
+            }
+
+            Thread beaconThread = new Thread(new ThreadStart(sendBeacon));
+            beaconThread.Start();
+
+            try
+            {
+                Client.BeginReceive(new AsyncCallback(recv), null);
+            }
+            catch (Exception exp)
+            {
+                Debug.WriteLine(exp.ToString());
             }
         }
 
@@ -227,6 +272,8 @@
             {
                 this.sensor.Stop();
             }
+
+            shouldExit = true;
         }
 
         private void addSkeletonToMemoryStream(Skeleton skel, MemoryStream ms)
