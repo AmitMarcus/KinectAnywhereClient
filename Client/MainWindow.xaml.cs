@@ -123,6 +123,22 @@
             Client.BeginReceive(new AsyncCallback(recv), null);
         }
 
+        private void syncClock()
+        {
+            while (!shouldExit)
+            {
+                System.Diagnostics.Process process = new System.Diagnostics.Process();
+                System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo();
+                startInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
+                startInfo.FileName = "W32tm";
+                startInfo.Arguments = "/resync /force";
+                process.StartInfo = startInfo;
+                process.Start();
+
+                Thread.Sleep(1000 * 60);
+            }
+        }
+
         private void sendBeacon()
         {
             while (!shouldExit)
@@ -132,6 +148,18 @@
                 string hostname = System.Environment.MachineName;
                 byte[] hostnameBytes = System.Text.Encoding.ASCII.GetBytes(hostname);
                 ms.Write(hostnameBytes, 0, hostnameBytes.Length);
+
+                ms.WriteByte(0);
+
+                // Write is kinect on
+                if (isKinectON)
+                {
+                    ms.WriteByte(1);
+                }
+                else
+                {
+                    ms.WriteByte(0);
+                }
 
                 if (serverAddr != null)
                 {
@@ -208,48 +236,55 @@
             // Display the drawing using our image control
             Image.Source = this.imageSource;
 
-            // Look through all sensors and start the first connected one.
-            // This requires that a Kinect is connected at the time of app startup.
-            // To make your app robust against plug/unplug, 
-            // it is recommended to use KinectSensorChooser provided in Microsoft.Kinect.Toolkit (See components in Toolkit Browser).
-            foreach (var potentialSensor in KinectSensor.KinectSensors)
+            while (this.sensor == null)
             {
-                if (potentialSensor.Status == KinectStatus.Connected)
+                // Look through all sensors and start the first connected one.
+                // This requires that a Kinect is connected at the time of app startup.
+                // To make your app robust against plug/unplug, 
+                // it is recommended to use KinectSensorChooser provided in Microsoft.Kinect.Toolkit (See components in Toolkit Browser).
+                foreach (var potentialSensor in KinectSensor.KinectSensors)
                 {
-                    this.sensor = potentialSensor;
-                    break;
-                }
-            }
-
-            if (null != this.sensor)
-            {
-                // Turn on the skeleton stream to receive skeleton frames
-                this.sensor.SkeletonStream.Enable();
-
-                // Add an event handler to be called whenever there is new color frame data
-                this.sensor.SkeletonFrameReady += this.SensorSkeletonFrameReady;
-
-                // Start the sensor!
-                try
-                {
-                    this.sensor.Start();
-                    isKinectON = true;
-                }
-                catch (IOException)
-                {
-                    this.sensor = null;
+                    if (potentialSensor.Status == KinectStatus.Connected)
+                    {
+                        this.sensor = potentialSensor;
+                        break;
+                    }
                 }
 
+                if (null != this.sensor)
+                {
+                    // Turn on the skeleton stream to receive skeleton frames
+                    this.sensor.SkeletonStream.Enable();
 
+                    // Add an event handler to be called whenever there is new color frame data
+                    this.sensor.SkeletonFrameReady += this.SensorSkeletonFrameReady;
+
+                    // Start the sensor!
+                    try
+                    {
+                        this.sensor.Start();
+                        isKinectON = true;
+                    }
+                    catch (IOException)
+                    {
+                        this.sensor = null;
+                    }
+                }
+
+                Thread.Sleep(1000);
             }
 
-            if (null == this.sensor)
-            {
-                this.statusBarText.Text = Properties.Resources.NoKinectReady;
-            }
+            // TODO: delete commented
+            //if (null == this.sensor)
+            //{
+            //    this.statusBarText.Text = Properties.Resources.NoKinectReady;
+            //}
 
             Thread beaconThread = new Thread(new ThreadStart(sendBeacon));
             beaconThread.Start();
+
+            Thread syncClockThread = new Thread(new ThreadStart(syncClock));
+            syncClockThread.Start();
 
             try
             {
@@ -351,19 +386,31 @@
                 {
                     MemoryStream ms = new MemoryStream();
 
+                    // Write hostname
                     string hostname = System.Environment.MachineName;
                     byte[] hostnameBytes = System.Text.Encoding.ASCII.GetBytes(hostname);
                     ms.Write(hostnameBytes, 0, hostnameBytes.Length);
 
-                    byte[] nullByte = new byte[1];
+                    byte[] nullByte = new byte[1]; // null terminator for hostname
                     nullByte[0] = 0;
                     ms.Write(nullByte, 0, nullByte.Length);
 
+                    // Write is kinect on
+                    if (isKinectON)
+                    {
+                        ms.WriteByte(1);
+                    }
+                    else
+                    {
+                        ms.WriteByte(0);
+                    }
+
+                    // Write timestamp
                     double timestamp = DateTime.Now.ToUniversalTime().Subtract(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
                     byte[] timestampBytes = BitConverter.GetBytes(timestamp);
                     ms.Write(timestampBytes, 0, timestampBytes.Length);
-
-
+                    
+                    // Write skeletons
                     foreach (Skeleton skel in skeletons)
                     {
                         RenderClippedEdges(skel, dc);
@@ -388,7 +435,7 @@
                     }
 
 
-                    if (serverAddr != null && ms.Length > timestampBytes.Length + hostnameBytes.Length + hostnameBytes.Length + nullByte.Length)
+                    if (serverAddr != null && ms.Length > timestampBytes.Length + hostnameBytes.Length + hostnameBytes.Length + nullByte.Length + 1)
                     {
                         ms.Position = 0;
                         IPEndPoint endPoint = new IPEndPoint(serverAddr, 11000);
