@@ -85,19 +85,16 @@
         /// </summary>
         private DrawingImage imageSource;
         
-        // TODO: comments
         static Socket sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         static IPAddress serverAddr = null;
         static bool isKinectON = false;
         static bool shouldExit = false;
 
-        // TODO: sometimes crashing because 5000 is still in use
         UdpClient Client = new UdpClient(5000);
 
         //CallBack
         private void recv(System.IAsyncResult res)
         {
-            // TODO: check port of RemoteIpEndPoint
             IPEndPoint RemoteIpEndPoint = new IPEndPoint(IPAddress.Any, 8000);
             byte[] receivedBytes = Client.EndReceive(res, ref RemoteIpEndPoint);
             string received = System.Text.Encoding.ASCII.GetString(receivedBytes);
@@ -273,12 +270,6 @@
 
                 Thread.Sleep(1000);
             }
-
-            // TODO: delete commented
-            //if (null == this.sensor)
-            //{
-            //    this.statusBarText.Text = Properties.Resources.NoKinectReady;
-            //}
 
             Thread beaconThread = new Thread(new ThreadStart(sendBeacon));
             beaconThread.Start();
